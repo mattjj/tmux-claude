@@ -78,11 +78,13 @@ Examples:
 # Open with Alt-c, no prefix needed — maximum Spotlight
 set -g @claude-popup-root-key 'M-c'
 
+# Use a faster model + lower thinking effort for quick questions, without
+# touching the defaults of your other Claude sessions (both flags are
+# per-session). Read at popup-open time, so no config reload needed.
+set -g @claude-popup-claude-args '--model opus --effort medium'
+
 # Make the scratch session resumable instead of fresh each time
 set -g @claude-popup-claude-args '--continue'
-
-# Use a specific model for quick questions
-set -g @claude-popup-claude-args '--model claude-haiku-4-5-20251001'
 ```
 
 ## Launching from a fish prompt (optional)
