@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+#
+# claude-popup — launch a scratch Claude Code session with ambient context.
+#
+# Designed to run inside a tmux popup (see ../tmux-claude.tmux), but works
+# from any shell inside tmux. Gathers recent fish history, the originating
+# pane's visible contents, and cwd/git info, then execs `claude` with that
+# context appended to the system prompt.
+#
+# Usage: claude-popup [pane-id]
+#   pane-id: tmux pane to capture context from (defaults to the active pane).
+
+set -o pipefail
+
+pane_id="${1:-}"
+
+# Read a tmux user option with a default, e.g. opt @claude-popup-history-lines 20
+opt() {
+  local val=""
+  if [ -n "${TMUX:-}" ]; then
+    val="$(tmux show-option -gqv "$1" 2>/dev/null)"
+  fi
+  printf '%s' "${val:-$2}"
+}
+
+history_lines="$(opt @claude-popup-history-lines 20)"
+scrollback_lines="$(opt @claude-popup-scrollback-lines 200)"
+claude_args="$(opt @claude-popup-claude-args '')"
+
+# Keep the popup open long enough to read an error instead of vanishing.
+die_visibly() {
+  printf '%s\n' "$*" >&2
+  printf 'Press any key to close... ' >&2
+  read -r -n 1 -s
+  exit 1
+}
+
+command -v claude >/dev/null 2>&1 ||
+  die_visibly "claude-popup: 'claude' CLI not found in PATH."
+
+# --- Recent fish history (newest first) ------------------------------------
+
+fish_history=""
+if command -v fish >/dev/null 2>&1; then
+  fish_history="$(fish -c "history --max $history_lines" 2>/dev/null)"
+fi
+if [ -z "$fish_history" ]; then
+  # Fallback: parse the history file directly (oldest first on disk).
+  hist_file="${XDG_DATA_HOME:-$HOME/.local/share}/fish/fish_history"
+  if [ -r "$hist_file" ]; then
+    fish_history="$(sed -n 's/^- cmd: //p' "$hist_file" |
+      tail -n "$history_lines" | tac)"
+  fi
+fi
+
+# --- Originating pane: visible contents ------------------------------------
+
+pane_text=""
+if [ -n "${TMUX:-}" ]; then
+  [ -n "$pane_id" ] || pane_id="$(tmux display-message -p '#{pane_id}')"
+  pane_text="$(tmux capture-pane -p -J -t "$pane_id" -S "-$scrollback_lines" 2>/dev/null |
+    sed 's/[[:space:]]*$//')"
+fi
+
+# --- Working directory + git ------------------------------------------------
+
+cwd="$PWD"
+git_info="not a git repository"
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  branch="$(git branch --show-current 2>/dev/null)"
+  [ -n "$branch" ] || branch="detached @ $(git rev-parse --short HEAD 2>/dev/null)"
+  git_info="branch \`$branch\`"
+  dirty="$(git status --porcelain 2>/dev/null | head -n 20)"
+  if [ -n "$dirty" ]; then
+    git_info="$git_info, uncommitted changes:
+\`\`\`
+$dirty
+\`\`\`"
+  else
+    git_info="$git_info, clean working tree"
+  fi
+fi
+
+# --- Assemble context and launch ---------------------------------------------
+
+context="# Scratch popup session
+
+You are running in a throwaway \"scratch\" Claude session opened in a tmux popup,
+so the user can ask a quick question without leaving what they were doing. Favor
+concise, direct answers; the popup will be dismissed when they're done. The
+sections below are ambient context captured at launch — the question may or may
+not relate to it.
+
+## Environment
+
+- Working directory: \`$cwd\`
+- Git: $git_info
+
+## Recent fish shell history (most recent first)
+
+\`\`\`\`
+${fish_history:-(no fish history available)}
+\`\`\`\`
+
+## Visible contents of the tmux pane the user was in
+
+\`\`\`\`
+${pane_text:-(no pane contents captured)}
+\`\`\`\`"
+
+# Optional extra args from @claude-popup-claude-args (word-split intentionally).
+# shellcheck disable=SC2086
+set -- $claude_args
+exec claude "$@" --append-system-prompt "$context"
