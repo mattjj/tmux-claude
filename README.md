@@ -4,6 +4,11 @@ A Spotlight box for Claude Code: press a key in tmux, get a popup running a
 fresh scratch Claude session, ask your quick question, hit `q`/`Ctrl-D` (or
 `Esc`) to dismiss it — all without leaving the pane you were working in.
 
+<img src="assets/screenshot.png" alt="A tmux popup running a scratch Claude session over a pane showing a Python traceback; Claude explains the crash using the pane contents" width="860">
+
+*A real capture: `orbit.py` crashed in the pane, `prefix + C`, "why did this
+crash?" — the scratch session already has the traceback in context.*
+
 Each popup session is preloaded (via the system prompt) with ambient context:
 
 - your **recent fish shell history** (last 20 commands by default)
